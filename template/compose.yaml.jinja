@@ -80,7 +80,7 @@ services:
     restart: unless-stopped
 
   db:
-    image: docker.io/library/postgres:18
+    image: docker.io/library/postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-{{ python_package }}}
       POSTGRES_USER: ${POSTGRES_USER:-localdemo}
@@ -98,7 +98,7 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: docker.io/library/rabbitmq:4.3-management
+    image: docker.io/library/rabbitmq:4.3.8-management@sha256:d1150154e5bb43773513548d2b1f541bb6d63bb49377baf2e21de303c2c62bb3
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-localdemo}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-localdemo}
@@ -116,7 +116,7 @@ services:
     restart: unless-stopped
 
   valkey:
-    image: docker.io/valkey/valkey:9
+    image: docker.io/valkey/valkey:9.2.0@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056
     profiles: [valkey]
     command: [valkey-server, --appendonly, "yes"]
     ports:

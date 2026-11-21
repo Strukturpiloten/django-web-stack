@@ -13,6 +13,7 @@ def template_source(tmp_path: Path) -> Path:
     source = tmp_path / "template-source"
     source.mkdir()
     copy2(REPOSITORY_ROOT / "copier.yml", source / "copier.yml")
+    copytree(REPOSITORY_ROOT / "application-dependencies", source / "application-dependencies")
     copytree(
         REPOSITORY_ROOT / "template",
         source / "template",

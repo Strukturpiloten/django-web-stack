@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -14,83 +16,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    outputs:
+      lanes: ${{ steps.plan.outputs.lanes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
-        with:
-          version: "0.13.9"
-          python-version: "3.15"
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - name: Install locked development tools
-        run: uv sync --locked
-      - name: Lint Python
-        run: uv run --locked ruff check .
-      - name: Check formatting
-        run: uv run --locked ruff format --check .
-      - name: Test template rendering, packaging, and updates
-        run: uv run --locked pytest
-
-  generated:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      matrix:
-        mode: [full, api-only]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
-        with:
-          version: "0.13.9"
-          python-version: "3.15"
-      - name: Generate an application from this revision
-        run: uv run --locked copier copy --defaults --vcs-ref HEAD -d default_mode=${{ matrix.mode }} . temp/application
-      - name: Build and start the shared application image
-        working-directory: temp/application
+      - id: plan
+        name: Select checks from the base revision
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          docker compose build web
-          docker compose up --no-build -d --wait --wait-timeout 180 web worker
-          curl --fail http://127.0.0.1:8000/health/ready
+          if [[ -n "$BASE" ]] && git cat-file -e "$BASE:.github/ci/plan.py"; then
+            git show "$BASE:.github/ci/plan.py" > "$RUNNER_TEMP/plan.py"
+            lanes=$(python -I "$RUNNER_TEMP/plan.py" --diff "$BASE" "$HEAD")
+          else
+            lanes=$(python -I .github/ci/plan.py)
+          fi
+          echo "lanes=$lanes" >> "$GITHUB_OUTPUT"
+          echo "Selected checks: $lanes" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: ${{ matrix.lane }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(needs.plan.outputs.lanes) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        if: matrix.lane != 'docs'
+        with:
+          version: "0.13.9"
+          python-version: "3.15"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: matrix.mode == 'full'
+        if: matrix.lane == 'frontend' || matrix.lane == 'renovate'
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: temp/application/package-lock.json
-      - name: Exercise the rendered UI and background worker in Chromium
-        if: matrix.mode == 'full'
-        working-directory: temp/application
+      - name: Run selected check
         env:
-          RUN_BROWSER_TESTS: "1"
-        run: |
-          npm ci --ignore-scripts
-          npm run build
-          uv run --locked --group browser playwright install --with-deps chromium
-          uv run --locked --all-extras --group browser --env-file .env.example pytest
-      - name: Test the generated API against PostgreSQL
-        if: matrix.mode == 'api-only'
-        working-directory: temp/application
-        run: uv run --locked --all-extras --env-file .env.example pytest
-      - name: Show container logs on failure
-        if: failure()
-        working-directory: temp/application
-        run: docker compose logs
+          LANE: ${{ matrix.lane }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/ci/check.sh
+      - uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+        if: matrix.lane == 'docs' || matrix.lane == 'rendered-docs'
+        with:
+          globs: |
+            ${{ matrix.lane == 'docs' && '**/*.md' || 'temp/*/**/*.md' }}
+            #template
+            #node_modules
+            #.venv
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        if: matrix.lane == 'docs' || matrix.lane == 'rendered-docs'
+        with:
+          args: --offline --include-fragments --no-progress '${{ matrix.lane == 'docs' && './**/*.md' || './temp/*/**/*.md' }}'
+          failIfEmpty: false
 
   required:
     name: Required CI
     if: always()
-    needs: [check, generated]
+    needs: [plan, test]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every template and image check
+      - name: Require the plan and every selected check
         env:
-          TEMPLATE_RESULT: ${{ needs.check.result }}
-          GENERATED_RESULT: ${{ needs.generated.result }}
-        run: test "$TEMPLATE_RESULT" = success && test "$GENERATED_RESULT" = success
+          PLAN: ${{ needs.plan.result }}
+          TEST: ${{ needs.test.result }}
+        run: test "$PLAN" = success && test "$TEST" = success
