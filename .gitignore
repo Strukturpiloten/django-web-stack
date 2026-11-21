@@ -1,0 +1,31 @@
+# Python and local tooling
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+build/
+dist/
+
+# Local configuration, generated projects and credentials
+.env
+.env.*
+!.env.example
+.local/
+.idea/
+.DS_Store
+
+# Frontend dependencies/build output in local generated projects
+node_modules/
+playwright-report/
+test-results/
+
+# Disposable Copier projects and test artifacts
+temp/
+.codegraph/

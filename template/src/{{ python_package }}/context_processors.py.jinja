@@ -1,0 +1,11 @@
+from django.conf import settings
+
+
+def project(request) -> dict:
+    return {
+        "project_name": {{ project_name | tojson }},
+        "python_package": "{{ python_package }}",
+        "package_name": "{{ python_package }}",
+        "ui_enabled": settings.UI_ENABLED,
+        "api_enabled": settings.API_ENABLED,
+    }

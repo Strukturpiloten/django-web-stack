@@ -1,0 +1,55 @@
+{
+  "name": "{{ project_slug }}",
+  "dockerComposeFile": [
+    "../compose.yaml",
+    "compose.yaml"
+  ],
+  "service": "devcontainer",
+  "runServices": [
+    "devcontainer",
+    "db",
+    "rabbitmq"
+  ],
+  "workspaceFolder": "/workspaces/{{ project_slug }}",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "overrideCommand": false,
+  "shutdownAction": "stopCompose",
+  "postCreateCommand": "bash .devcontainer/verify-tools.sh",
+  "waitFor": "postCreateCommand",
+  "forwardPorts": [
+    8000,
+    15672
+  ],
+  "portsAttributes": {
+    "8000": {
+      "label": "{{ project_slug }}",
+      "onAutoForward": "notify"
+    },
+    "15672": {
+      "label": "RabbitMQ management",
+      "onAutoForward": "silent"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "charliermarsh.ruff",
+        "redhat.vscode-yaml",
+        "esbenp.prettier-vscode",
+        "DavidAnson.vscode-markdownlint",
+        "tombi-toml.tombi",
+        "exiasr.hadolint",
+        "mkhl.shfmt",
+        "timonwong.shellcheck",
+        "streetsidesoftware.code-spell-checker"
+      ],
+      "settings": {
+        "python.envFile": "/dev/null"
+      }
+    }
+  }
+}

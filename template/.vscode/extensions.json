@@ -1,0 +1,17 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.debugpy",
+    "charliermarsh.ruff",
+    "redhat.vscode-yaml",
+    "esbenp.prettier-vscode",
+    "DavidAnson.vscode-markdownlint",
+    "tombi-toml.tombi",
+    "exiasr.hadolint",
+    "mkhl.shfmt",
+    "timonwong.shellcheck",
+    "streetsidesoftware.code-spell-checker",
+    "ms-vscode-remote.remote-containers"
+  ]
+}

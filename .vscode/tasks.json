@@ -1,0 +1,67 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Template: Sync tools",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "sync",
+        "--locked"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Template: Lint",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "ruff",
+        "check",
+        "."
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Template: Format check",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Template: Test",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "pytest"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Template: Check all",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Template: Lint",
+        "Template: Format check",
+        "Template: Test"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

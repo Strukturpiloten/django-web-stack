@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold">Hello world</h1>
+    <p class="text-base-content/70">A small starting point for {{ project_name }}.</p>
+  </div>
+
+  <section class="card bg-base-100 shadow-sm" aria-labelledby="hello-heading">
+    <div class="card-body">
+      <h2 id="hello-heading" class="card-title">Say hello</h2>
+      <p>Get a greeting without reloading the page.</p>
+      <div id="hello-result" class="rounded-box bg-base-200 p-4" role="status" aria-live="polite">
+        Ready to say hello.
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" type="button" hx-get="{% url 'hello' %}" hx-target="#hello-result" hx-swap="innerHTML" hx-disabled-elt="this">Say hello</button>
+        {% if api_enabled %}<a class="btn btn-ghost" href="{% url 'api-v1:hello' %}">View JSON</a>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="card bg-base-100 shadow-sm" aria-labelledby="job-heading">
+    <div class="card-body">
+      <h2 id="job-heading" class="card-title">Background hello</h2>
+      <p>Run a greeting as a background job and watch its progress.</p>
+      {% if user.is_authenticated %}
+        <form action="{% url 'job-create' %}" method="post" hx-post="{% url 'job-create' %}" hx-target="#job-result" hx-swap="innerHTML" hx-disabled-elt="find button">
+          {% csrf_token %}
+          <button class="btn btn-primary" type="submit">Run background hello</button>
+        </form>
+      {% else %}
+        <p><a class="link link-primary" href="{% url 'account_login' %}?next={% url 'index' %}">Sign in</a> to run a background job.</p>
+      {% endif %}
+      <div id="job-result" class="rounded-box bg-base-200 p-4" aria-live="polite">
+        <p>No job started yet.</p>
+      </div>
+    </div>
+  </section>
+{% endblock %}

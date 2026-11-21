@@ -1,0 +1,86 @@
+# {{ project_name }}
+
+{{ project_description }}
+
+Generated from [django-web-stack](https://github.com/Strukturpiloten/django-web-stack).
+
+## Status
+
+This project starts in `{{ default_mode }}` mode. PostgreSQL stores application data and sessions. RabbitMQ delivers tasks to a Celery worker. Uvicorn, the worker, and the migration job share one Python image.
+{% if include_frontend %}
+Django serves the product pages. Node 24 builds the Tailwind/daisyUI and HTMX assets during the image build.
+{% endif %}
+## Run locally
+
+```sh
+cp .env.example .env
+podman compose up --build -d
+curl --fail http://localhost:8000/health/ready
+```
+
+Docker users can substitute `docker compose`. Use `podman compose logs -f web worker` for logs and `podman compose down` to stop. Migrations run before the web and worker services start.
+{% if include_frontend %}
+Open `http://localhost:8000/` for the demo. Create a local administrator with `podman compose exec web python -m django createsuperuser` to try the signed-in browser flow.
+{% endif %}
+## Interfaces
+
+Edit `DJANGO_MODE` in `.env` and run `podman compose up -d` to recreate the services.
+{% if include_frontend %}
+Choose `web-only` for product pages, `full` for pages and API, `api-only` for the API, or `backend-only` for neither. Browser account pages and OIDC callbacks remain available.
+{% else %}
+Choose `api-only` for the HTTP API or `backend-only` for jobs and health checks. To add the product UI and its build tools later, run `copier update --vcs-ref=:current: -d default_mode=full`, review the generated changes, and set `DJANGO_MODE=full` in your local environment.
+{% endif %}
+When the API is enabled, the public `GET /api/v1/hello` returns JSON. For a non-browser client acting as a user, send the following requests against the same service. Use HTTPS in a deployment and keep the session token private.
+
+| Step | Request |
+| --- | --- |
+| Sign in | `POST /_allauth/app/v1/auth/login` with JSON containing `username` and `password`. Read `meta.session_token` from the successful response. |
+| Start a job | `POST /api/v1/jobs` with the `X-Session-Token` header. The 202 response includes the job ID. |
+| Read the result | `GET /api/v1/jobs/{id}` with the same header. Only the owner can read the job. |
+| Sign out | `DELETE /_allauth/app/v1/auth/session` with the same header to revoke the session. |
+
+Use an ordinary account for client access. Browser frontends can use the cookie-based `/_allauth/browser/v1/` endpoints. Fetch `config` to receive the CSRF cookie and send its current value in `X-CSRFToken` on writes. A same-origin reverse proxy lets an independently deployed frontend use these endpoints with the default cookie policy. [allauth session tokens](https://docs.allauth.org/en/latest/headless/token-strategies/session-tokens.html)
+
+## Settings
+
+- `DJANGO_ENABLE_ADMIN` enables `/admin/`. `DJANGO_ENABLE_API_SCHEMA` enables `/api/v1/openapi.json`. `DJANGO_ENABLE_API_DOCS` adds `/api/v1/docs` and requires the schema.
+- `DJANGO_OIDC_APPS` accepts django-allauth OIDC provider configuration. Self-signup requires `DJANGO_ENABLE_SIGNUP=1`. Configure account email delivery and any frontend URLs needed by your account recovery flow before enabling it for users.
+- For shared caching, set `COMPOSE_PROFILES=valkey` and `CONTAINER_VALKEY_URL=redis://valkey:6379/0`. For host commands, set `VALKEY_URL=redis://127.0.0.1:16379/0`.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` enables trace export to your OTLP/HTTP collector.
+
+The local demo binds ports to localhost. For deployment, supply unique secrets and database/broker credentials, set `DJANGO_DEBUG=0`, configure hosts and trusted origins, and terminate HTTPS at your ingress. Enable `DJANGO_TRUST_PROXY` only behind a proxy that controls the forwarded scheme header. Configure `WEB_PORT` and `DJANGO_CSRF_TRUSTED_ORIGINS` together when changing the local port.
+
+## Develop and test
+
+Reopen in the included devcontainer or run the following commands on the host. The devcontainer starts PostgreSQL and RabbitMQ.
+
+```sh
+podman compose up -d db rabbitmq
+uv sync --locked --all-extras
+{% if include_frontend -%}
+npm ci --ignore-scripts
+npm run build
+{% endif -%}
+uv run --locked --all-extras --env-file .env python manage.py migrate
+uv run --locked --all-extras --env-file .env python manage.py runserver
+```
+
+Run `uv run --locked --all-extras --env-file .env celery -A {{ python_package }}.celery:app worker --loglevel INFO` in a second terminal for background jobs. Tests use PostgreSQL.
+
+```sh
+uv run --locked --all-extras ruff check .
+uv run --locked --all-extras ruff format --check .
+uv run --locked --all-extras --env-file .env pytest
+{% if include_frontend -%}
+uv run --locked --group browser playwright install chromium
+RUN_BROWSER_TESTS=1 uv run --locked --all-extras --group browser --env-file .env pytest tests/test_browser.py
+{% endif -%}
+```
+{% if include_frontend %}
+Run `npm run dev` to watch CSS changes. The opt-in browser test uses Chromium and a real RabbitMQ worker.
+{% endif %}
+## Update from the template
+
+Commit `.copier-answers.yml` and your lockfiles. From a clean Git checkout, run `copier check-update`, create an update branch, then run `copier update --defaults`. To target a specific release, add `--vcs-ref <published-tag>`. Review conflicts, lockfile changes, and migrations, then run the checks and merge through a PR. Enable Renovate on this repository for automatic Copier update PRs. Dependabot handles application dependencies.
+
+The starter is MIT licensed. Retain notices for copied template material.

@@ -1,0 +1,187 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Application: Sync dependencies",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "sync",
+        "--locked",
+        "--all-extras"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Application: Lint",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "ruff",
+        "check",
+        "."
+      ],
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+    {
+      "label": "Application: Format check",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+    {
+      "label": "Application: Test",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "pytest"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+    {
+      "label": "Application: Django check",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "python",
+        "manage.py",
+        "check"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+    {
+      "label": "Application: Migrate",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "python",
+        "manage.py",
+        "migrate",
+        "--noinput"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+{% if include_frontend %}
+    {
+      "label": "Application: Build assets",
+      "type": "process",
+      "command": "npm",
+      "args": [
+        "run",
+        "build"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+{% endif %}
+    {
+      "label": "Application: Uvicorn",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "uvicorn",
+        "{{ python_package }}.asgi:application",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+    {
+      "label": "Application: Celery",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "--all-extras",
+        "celery",
+        "-A",
+        "{{ python_package }}.celery:app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=2"
+      ],
+      "problemMatcher": [],
+      "options": {
+        "env": {
+          "UV_ENV_FILE": "${config:python.envFile}"
+        }
+      }
+    },
+    {
+      "label": "Application: Check all",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Application: Lint",
+        "Application: Format check",
+        "Application: Django check",
+        "Application: Test"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

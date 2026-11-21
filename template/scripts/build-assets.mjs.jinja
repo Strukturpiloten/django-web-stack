@@ -1,0 +1,43 @@
+import { spawn } from "node:child_process";
+import { copyFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+const packageName = {{ python_package | tojson }};
+const output = join(root, "src", packageName, "static", packageName);
+const watch = process.argv.includes("--watch");
+
+if (process.argv.slice(2).some((argument) => argument !== "--watch")) {
+  throw new Error("Usage: node scripts/build-assets.mjs [--watch]");
+}
+
+await mkdir(output, { recursive: true });
+await copyFile(
+  join(root, "node_modules", "htmx.org", "dist", "htmx.min.js"),
+  join(output, "htmx.min.js"),
+);
+
+const child = spawn(
+  process.execPath,
+  [
+    join(root, "node_modules", "@tailwindcss", "cli", "dist", "index.mjs"),
+    "--input",
+    join(root, "assets", "styles.css"),
+    "--output",
+    join(output, "app.css"),
+    watch ? "--watch=always" : "--minify",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => child.kill(signal));
+}
+child.on("error", (error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+child.on("exit", (code, signal) => {
+  process.exitCode = code ?? (signal === "SIGINT" ? 130 : 143);
+});

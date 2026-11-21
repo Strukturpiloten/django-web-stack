@@ -1,0 +1,104 @@
+name: Application checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: {% raw %}application-checks-${{ github.workflow }}-${{ github.ref }}{% endraw %}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      db:
+        image: postgres:18
+        env:
+          POSTGRES_DB: {{ python_package }}
+          POSTGRES_USER: localdemo
+          POSTGRES_PASSWORD: localdemo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U localdemo -d {{ python_package }}"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      rabbitmq:
+        image: rabbitmq:4.3-management
+        env:
+          RABBITMQ_DEFAULT_USER: localdemo
+          RABBITMQ_DEFAULT_PASS: localdemo
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_running"
+          --health-interval 10s --health-timeout 10s --health-retries 12
+    env:
+      DJANGO_SETTINGS_MODULE: {{ python_package }}.settings
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: ci-only-test-secret-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: {{ python_package }}
+      POSTGRES_USER: localdemo
+      POSTGRES_PASSWORD: localdemo
+      CELERY_BROKER_URL: amqp://localdemo:localdemo@127.0.0.1:5672//
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.9"
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+{% if include_frontend %}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+{% endif %}
+      - name: Install locked Python dependencies
+        run: uv sync --locked --all-extras
+{% if include_frontend %}
+      - name: Install locked frontend dependencies
+        run: npm ci --ignore-scripts
+      - name: Build static assets
+        run: npm run build
+{% endif %}
+      - name: Lint Python
+        run: uv run --locked --all-extras ruff check .
+      - name: Check Python formatting
+        run: uv run --locked --all-extras ruff format --check .
+      - name: Check Django configuration and committed migrations
+        run: |
+          uv run --locked --all-extras python manage.py check
+          uv run --locked --all-extras python manage.py makemigrations --check --dry-run
+{% if include_frontend %}
+      - name: Install Chromium and its system dependencies
+        run: uv run --locked --all-extras --group browser playwright install --with-deps chromium
+      - name: Run application and browser tests
+        env:
+          RUN_BROWSER_TESTS: "1"
+        run: uv run --locked --all-extras --group browser pytest
+{% else %}
+      - name: Run application tests
+        run: uv run --locked --all-extras pytest
+{% endif %}
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the application runtime image
+        run: docker build --file Containerfile --target runtime --tag {{ project_slug }}:ci .

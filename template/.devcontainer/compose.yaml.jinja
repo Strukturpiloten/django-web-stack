@@ -1,0 +1,45 @@
+# Paths resolve from the first file: the project-root compose.yaml.
+# runServices in devcontainer.json excludes the application-image services.
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    userns_mode: keep-id
+    command: [sleep, infinity]
+    environment:
+      DJANGO_SETTINGS_MODULE: {{ python_package }}.settings
+      DJANGO_MODE: ${DJANGO_MODE:-{{ default_mode }}}
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-demo-change-this-before-deployment}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,web,devcontainer}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      DJANGO_ENABLE_ADMIN: ${DJANGO_ENABLE_ADMIN:-{{ 1 if include_frontend else 0 }}}
+      DJANGO_ENABLE_API_DOCS: ${DJANGO_ENABLE_API_DOCS:-{{ 1 if include_frontend else 0 }}}
+      DJANGO_ENABLE_API_SCHEMA: ${DJANGO_ENABLE_API_SCHEMA:-1}
+      DJANGO_ENABLE_SIGNUP: ${DJANGO_ENABLE_SIGNUP:-0}
+      DJANGO_OIDC_APPS: ${DJANGO_OIDC_APPS:-[]}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-{{ python_package }}}
+      POSTGRES_USER: ${POSTGRES_USER:-localdemo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdemo}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-localdemo}:${RABBITMQ_PASSWORD:-localdemo}@rabbitmq:5672//
+      VALKEY_URL: ${CONTAINER_VALKEY_URL:-}
+      UV_CACHE_DIR: /home/vscode/.cache/uv
+      UV_PYTHON_DOWNLOADS: "0"
+      UV_LINK_MODE: copy
+    volumes:
+      - .:/workspaces/{{ project_slug }}:Z
+      - devcontainer_venv:/workspaces/{{ project_slug }}/.venv
+      - devcontainer_uv_cache:/home/vscode/.cache/uv
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    init: true
+
+volumes:
+  devcontainer_venv:
+  devcontainer_uv_cache:

@@ -1,0 +1,11 @@
+<div id="job-status" data-status="{{ job.status }}" role="status"{% if job.status == 'pending' or job.status == 'running' %} hx-get="{% url 'job-status' job.id %}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+  {% if job.status == 'succeeded' %}
+    <p class="font-semibold">Completed</p>
+    <p>{{ job.result }}</p>
+  {% elif job.status == 'failed' %}
+    <p class="font-semibold text-error">Job failed</p>
+    <p>Please try again.</p>
+  {% else %}
+    <p class="flex items-center gap-2"><span class="loading loading-spinner loading-xs" aria-hidden="true"></span>{{ job.get_status_display }}…</p>
+  {% endif %}
+</div>
