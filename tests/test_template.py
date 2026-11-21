@@ -187,7 +187,10 @@ def test_update_keeps_project_owned_files(template_source: Path, tmp_path: Path,
     assert yaml.safe_load(answers_file.read_text())["_commit"] == initial
     if mode == "api-only":
         # The first scaffold stored the abbreviated Git SHA.
-        answers_file.write_text(answers_file.read_text().replace(initial, initial[:7]))
+        # Serialize it as Copier did, including YAML quoting for numeric Git prefixes.
+        legacy_answers = yaml.safe_load(answers_file.read_text())
+        legacy_answers["_commit"] = initial[:7]
+        answers_file.write_text(yaml.safe_dump(legacy_answers, sort_keys=False))
     initialize_git(destination)
     commit_all(destination, "Generate application")
 
