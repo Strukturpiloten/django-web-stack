@@ -1,6 +1,6 @@
 # django-web-stack
 
-A versioned [Copier](https://copier.readthedocs.io/) template for independent Django repositories. Each project owns its source code, database, images, and release schedule. Use the template when starting a project, then pick up shared changes through reviewed updates.
+A [Copier](https://copier.readthedocs.io/) template for independent Django repositories. Each project owns its source code, database, images, and release schedule. Use the template when starting a project, then pick up shared changes through reviewed updates.
 
 ## Choose the interfaces
 
@@ -15,17 +15,21 @@ Choose `web-only` when the API should start disabled. Set `DJANGO_MODE=full` lat
 
 ## Start a repository
 
-To try a committed local checkout before the first release, run the following from the parent directory. Use the canonical remote for long-lived projects so every contributor can retrieve the template.
+To try a local checkout, run the following from its parent directory. Use the canonical remote for shared projects so every contributor can retrieve the same commit.
 
 ```sh
 uvx --from 'copier>=9.19,<10' copier copy --vcs-ref HEAD -d default_mode=api-only "$PWD/django-web-stack" ./orders
 ```
 
-Once the template has a published release, copy from its canonical Git URL. Copier selects the latest stable tag. Pin a particular published tag with `--vcs-ref` when multiple projects should start from the same revision.
+For a shared project, select a full commit SHA from a successful `main` push to the [template checks](https://github.com/Strukturpiloten/django-web-stack/actions/workflows/checks.yml?query=branch%3Amain+event%3Apush). With the GitHub CLI, the commands below select the latest successful run and pin that exact revision. Python 3.15 is the default throughout the generated stack.
 
 ```sh
 uv tool install 'copier>=9.19,<10'
-copier copy -d default_mode=api-only https://github.com/Strukturpiloten/django-web-stack.git orders
+upstream=Strukturpiloten/django-web-stack
+template_sha=$(gh run list --repo "$upstream" --workflow checks.yml --branch main \
+  --event push --status success --limit 1 --json headSha --jq '.[0].headSha // empty')
+copier copy --vcs-ref "${template_sha:?No successful main run found}" -d default_mode=api-only \
+  "https://github.com/$upstream.git" orders
 cd orders
 git init -b main
 git add .
@@ -47,21 +51,20 @@ Compose runs Uvicorn, the Celery worker, and the one-shot migration command as s
 
 ## Inherit upstream changes
 
-1. **Template maintainers** commit the tested scaffold and publish immutable version tags such as `v0.1.0`. Describe breaking changes and any manual migration steps in the release notes.
-2. **Application maintainers** commit `.copier-answers.yml`. It records the source, release, and answers. Keep domain-specific code in project-owned Django apps to reduce overlap with the scaffold.
-3. From a clean consumer checkout, run the following commands and review the result in a pull request.
+The template uses full Git commit SHAs. Maintainers merge checked PRs into protected `main` and include breaking changes and migration instructions in the PR description. Each application commits its generated `.copier-answers.yml`, which records the exact template commit, URL, and generation choices.
+
+The generated **Update Django template** workflow runs weekly and on demand. For GitHub HTTPS template sources it selects the latest successful `checks.yml` push on upstream `main`, applies forward updates with Copier, and opens or refreshes one PR with an upstream comparison link. Application CI checks the proposed changes before the consumer merges them. Dependabot continues to update the application's packages and actions.
+
+To update manually, select a successful commit as in the generation example, then run these commands from a clean consumer checkout.
 
 ```sh
-copier check-update
 git switch -c chore/update-django-web-stack
-copier update --defaults
+copier update --defaults --vcs-ref "${template_sha:?Select a successful upstream SHA}"
 git status
 git diff HEAD
 ```
 
-Copier reapplies local changes over the new template. Resolve conflicts, include new files and the updated answers, and run the application checks before merging. For a specific release, pass `--vcs-ref <published-tag>` to `copier update`. Business logic that several projects must execute identically is a candidate for a separately versioned Django package with ordinary dependency updates.
-
-Generated repositories include a Renovate configuration limited to Copier. Enable Renovate for the repository to receive template upgrade PRs. Dependabot covers the generated application's dependencies. [Copier update guide](https://copier.readthedocs.io/en/stable/updating/) · [Renovate Copier manager](https://docs.renovatebot.com/modules/manager/copier/)
+Copier reapplies local changes over the selected commit. Resolve conflicts locally, include new files and the updated answers, and run the consumer's checks before merging. Keep application business logic in project-owned Django apps to reduce conflicts. For changes shared at runtime, consider a separately packaged Django app.
 
 ## Develop the template
 
@@ -72,4 +75,4 @@ uv run --locked ruff format --check .
 uv run --locked pytest
 ```
 
-Tests exercise rendering, package builds, and upgrades to customized consumers. CI also builds and starts full and API-only applications. Keep local experiments under the ignored `temp/` directory. Dependency maintenance and release instructions are in [CONTRIBUTING.md](CONTRIBUTING.md). The template and generated starter are MIT licensed.
+Tests exercise rendering, package builds, and upgrades to customized consumers. CI also builds and starts full and API-only applications. Keep local experiments under the ignored `temp/` directory. Dependency maintenance and merge instructions are in [CONTRIBUTING.md](CONTRIBUTING.md). The template and generated starter are MIT licensed.

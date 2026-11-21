@@ -81,6 +81,10 @@ Run `npm run dev` to watch CSS changes. The opt-in browser test uses Chromium an
 {% endif %}
 ## Update from the template
 
-Commit `.copier-answers.yml` and your lockfiles. From a clean Git checkout, run `copier check-update`, create an update branch, then run `copier update --defaults`. To target a specific release, add `--vcs-ref <published-tag>`. Review conflicts, lockfile changes, and migrations, then run the checks and merge through a PR. Enable Renovate on this repository for automatic Copier update PRs. Dependabot handles application dependencies.
+Commit `.copier-answers.yml` and your lockfiles. The **Update Django template** workflow runs every Monday and can also be started from Actions. It selects a successful upstream `main` commit, applies it on a dedicated automation branch and links the upstream diff in the PR. Dependabot handles application dependencies.
+
+For the default workflow token, enable **Allow GitHub Actions to create and approve pull requests** in the repository's Actions settings. GitHub may ask a maintainer to approve the PR's workflow runs. For unattended PR checks or changes to files under `.github/workflows/`, configure the optional `TEMPLATE_UPDATE_TOKEN` repository secret with a fine-grained token limited to this repository and write access to **Contents**, **Pull requests**, and **Workflows**. [GitHub workflow token behavior](https://docs.github.com/en/actions/concepts/security/github_token)
+
+If Copier reports conflicts, or the template source is local, create a branch from a clean checkout and run `copier update --defaults --vcs-ref <full-upstream-sha>`. Resolve the conflicts, review settings and migrations, and run application CI before merging. The generated package version belongs to this application.
 
 The starter is MIT licensed. Retain notices for copied template material.

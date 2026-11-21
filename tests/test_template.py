@@ -70,7 +70,7 @@ def test_render_build_and_import(
     metadata = tomllib.loads((destination / "pyproject.toml").read_text())
     assert metadata["project"]["name"] == slug
     assert metadata["project"]["description"] == description
-    assert metadata["project"]["requires-python"] == ">=3.14,<3.15"
+    assert metadata["project"]["requires-python"] == ">=3.15,<3.16"
     answers = yaml.safe_load((destination / ".copier-answers.yml").read_text())
     assert answers["_src_path"] == str(template_source)
     assert answers["python_package"] == package
@@ -160,9 +160,11 @@ def test_generation_modes(template_source: Path, tmp_path: Path, mode: str) -> N
     assert ("actions/setup-node@" in workflow) == has_ui
     assert ("npm ci" in (destination / ".devcontainer/verify-tools.sh").read_text()) == has_ui
     assert f"DJANGO_MODE={mode}\n" in (destination / ".env.example").read_text()
-    for path in (".vscode/tasks.json", ".devcontainer/devcontainer.json", "renovate.json"):
+    for path in (".vscode/tasks.json", ".devcontainer/devcontainer.json"):
         json.loads((destination / path).read_text())
     assert yaml.safe_load(workflow)["jobs"]["check"]
+    update = yaml.safe_load((destination / ".github/workflows/update-template.yml").read_text())
+    assert update["jobs"]["update"]
     assert yaml.safe_load((destination / "compose.yaml").read_text())["services"]["web"]
     subprocess.run(["uv", "lock", "--check"], cwd=destination, check=True)
 
@@ -171,11 +173,21 @@ def test_generation_modes(template_source: Path, tmp_path: Path, mode: str) -> N
 def test_update_keeps_project_owned_files(template_source: Path, tmp_path: Path, mode: str) -> None:
     initialize_git(template_source)
     commit_all(template_source, "Initial template")
-    git(template_source, "tag", "v0.1.0")
+    initial = git(template_source, "rev-parse", "HEAD")
     destination = tmp_path / "application"
     run_copy(
-        str(template_source), destination, data={"default_mode": mode}, defaults=True, quiet=True
+        str(template_source),
+        destination,
+        vcs_ref=initial,
+        data={"default_mode": mode},
+        defaults=True,
+        quiet=True,
     )
+    answers_file = destination / ".copier-answers.yml"
+    assert yaml.safe_load(answers_file.read_text())["_commit"] == initial
+    if mode == "api-only":
+        # The first scaffold stored the abbreviated Git SHA.
+        answers_file.write_text(answers_file.read_text().replace(initial, initial[:7]))
     initialize_git(destination)
     commit_all(destination, "Generate application")
 
@@ -192,14 +204,14 @@ def test_update_keeps_project_owned_files(template_source: Path, tmp_path: Path,
         )
     )
     commit_all(template_source, "Update template guidance")
-    git(template_source, "tag", "v0.2.0")
+    target = git(template_source, "rev-parse", "HEAD")
 
-    run_update(destination, defaults=True, overwrite=True, quiet=True)
+    run_update(destination, vcs_ref=target, defaults=True, overwrite=True, quiet=True)
     assert "Template update compatibility check." in readme.read_text()
     assert "Project-specific development notes." in readme.read_text()
     assert business_module.read_text() == '"""Project-owned business rules."""\n'
     answers = yaml.safe_load((destination / ".copier-answers.yml").read_text())
-    assert answers["_commit"] == "v0.2.0"
+    assert answers["_commit"] == target
     assert answers["default_mode"] == mode
     assert (destination / ".env.example").is_file()
     assert (destination / "package.json").is_file() == (mode == "full")

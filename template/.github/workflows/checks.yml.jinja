@@ -56,7 +56,7 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.13.9"
-          python-version: "3.14"
+          python-version: "3.15"
           enable-cache: true
           cache-dependency-glob: uv.lock
 {% if include_frontend %}
@@ -102,3 +102,15 @@ jobs:
           persist-credentials: false
       - name: Build the application runtime image
         run: docker build --file Containerfile --target runtime --tag {{ project_slug }}:ci .
+
+  required:
+    name: Required CI
+    if: always()
+    needs: [check, image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require application tests and the runtime image
+        env:
+          TEST_RESULT: {% raw %}${{ needs.check.result }}{% endraw %}
+          IMAGE_RESULT: {% raw %}${{ needs.image.result }}{% endraw %}
+        run: test "$TEST_RESULT" = success && test "$IMAGE_RESULT" = success
