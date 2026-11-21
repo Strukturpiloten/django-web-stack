@@ -18,7 +18,7 @@ Choose `web-only` when the API should start disabled. Set `DJANGO_MODE=full` lat
 To try a committed local checkout before the first release, run the following from the parent directory. Use the canonical remote for long-lived projects so every contributor can retrieve the template.
 
 ```sh
-uvx --from 'copier>=9.19,<10' copier copy --vcs-ref HEAD -d default_mode=api-only ./django-web-stack ./orders
+uvx --from 'copier>=9.19,<10' copier copy --vcs-ref HEAD -d default_mode=api-only "$PWD/django-web-stack" ./orders
 ```
 
 Once the template has a published release, copy from its canonical Git URL. Copier selects the latest stable tag. Pin a particular published tag with `--vcs-ref` when multiple projects should start from the same revision.
