@@ -55,3 +55,15 @@ def test_lock_policy(monkeypatch, age, old, new, old_alerts, new_alerts, reviewe
     )
     problems = policy.check({("pip", "django", old, new)}, reviewed, NOW)
     assert (not problems) == allowed
+
+
+def test_osv_cvss_threshold_and_withdrawal(monkeypatch):
+    high = {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"}
+    low = {"type": "CVSS_V3", "score": "CVSS:3.1/AV:P/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}
+    records = [
+        {"id": "CVE-high", "severity": [high]},
+        {"id": "CVE-low", "severity": [low]},
+        {"id": "CVE-withdrawn", "severity": [high], "withdrawn": "2026-10-01"},
+    ]
+    monkeypatch.setattr(policy, "fetch", lambda _, payload: {"vulns": records})
+    assert policy.osv_advisories("pip", "demo", "1.0") == {"CVE-high"}

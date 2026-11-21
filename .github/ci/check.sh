@@ -35,8 +35,13 @@ case "$LANE" in
             > "$RUNNER_TEMP/renovate-extract.jsonl"
         python .github/ci/check-extraction.py "$RUNNER_TEMP/renovate-extract.jsonl"
         if [[ "$PR_AUTHOR" == 'renovate[bot]' && -n "$BASE" ]]; then
-            git show "$BASE:.github/ci/lock-policy.py" > "$RUNNER_TEMP/lock-policy.py"
-            python -I "$RUNNER_TEMP/lock-policy.py" "$BASE"
+            trusted="$RUNNER_TEMP/dependency-policy"
+            mkdir -p "$trusted"
+            for file in pyproject.toml uv.lock .github/ci/lock-policy.py; do
+                git show "$BASE:$file" > "$trusted/${file##*/}"
+            done
+            uv sync --locked --project "$trusted"
+            "$trusted/.venv/bin/python" -I "$trusted/lock-policy.py" "$BASE"
         fi
         ;;
     workflows)

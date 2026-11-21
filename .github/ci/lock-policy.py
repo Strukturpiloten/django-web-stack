@@ -6,10 +6,13 @@ import re
 import subprocess
 import sys
 import tomllib
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+
+from cvss import CVSS3, CVSS4
 
 LOCKS = ("uv.lock", "application-dependencies/uv.lock", "template/package-lock.json")
 HOLD = timedelta(days=3)
@@ -18,23 +21,27 @@ DEV_MINOR = {"ruff", "pytest", "pytest-django", "build", "hatchling"}
 
 def versions(path, content):
     if path.endswith(".lock"):
-        return {
-            p["name"]: p["version"]
-            for p in tomllib.loads(content)["package"]
-            if p["source"].get("registry")
-        }
+        resolved = defaultdict(set)
+        for package in tomllib.loads(content)["package"]:
+            if package["source"].get("registry"):
+                resolved[package["name"]].add(package["version"])
+        return resolved
     return {
-        location: package["version"]
+        location: {package["version"]}
         for location, package in json.loads(content)["packages"].items()
         if location and "version" in package
     }
 
 
-def fetch(url, github=False):
+def fetch(url, github=False, payload=None):
     headers = {"User-Agent": "django-web-stack-dependency-check"}
     if github and os.environ.get("GH_TOKEN"):
         headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
-    with urlopen(Request(url, headers=headers), timeout=30) as response:
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode()
+        headers["Content-Type"] = "application/json"
+    with urlopen(Request(url, headers=headers, data=data), timeout=30) as response:
         return json.load(response)
 
 
@@ -48,8 +55,34 @@ def published(ecosystem, name, version):
     return datetime.fromisoformat(timestamp)
 
 
-def advisories(ecosystem, name, version):
+def high_osv_severity(record):
+    # Prefer the current CVSS standard when the publisher supplies multiple vectors.
+    for kind, calculator in (("CVSS_V4", CVSS4), ("CVSS_V3", CVSS3)):
+        for rating in record.get("severity", []):
+            if rating["type"] == kind:
+                return calculator(rating["score"]).scores()[0] >= 7
+    return record.get("database_specific", {}).get("severity", "").upper() in {"HIGH", "CRITICAL"}
+
+
+def osv_advisories(ecosystem, name, version):
+    package = {"ecosystem": "PyPI" if ecosystem == "pip" else "npm", "name": name}
+    query = {"package": package, "version": version}
     found = set()
+    for _ in range(100):
+        batch = fetch("https://api.osv.dev/v1/query", payload=query)
+        found.update(
+            item["id"]
+            for item in batch.get("vulns", [])
+            if not item.get("withdrawn") and high_osv_severity(item)
+        )
+        if not batch.get("next_page_token"):
+            return found
+        query["page_token"] = batch["next_page_token"]
+    raise ValueError("OSV pagination limit reached")
+
+
+def advisories(ecosystem, name, version):
+    found = osv_advisories(ecosystem, name, version)
     for page in range(1, 101):
         query = urlencode(
             {
@@ -111,11 +144,16 @@ def main(base):
     for path in LOCKS:
         source = subprocess.check_output(["git", "show", f"{base}:{path}"], text=True)
         old = versions(path, source)
-        for key, version in versions(path, Path(path).read_text()).items():
-            if version != old.get(key):
+        for key, candidates in versions(path, Path(path).read_text()).items():
+            previous = old.get(key, set())
+            removed = previous - candidates
+            # A package may have different Python versions for different environment markers.
+            # An ambiguous replacement is reviewed as a newly introduced dependency.
+            prior = next(iter(removed)) if len(removed) == 1 else None
+            for version in candidates - previous:
                 ecosystem = "npm" if path.endswith(".json") else "pip"
                 name = key.split("node_modules/")[-1]
-                updates.add((ecosystem, name, old.get(key), version))
+                updates.add((ecosystem, name, prior, version))
     reviewed = "dependency-reviewed" in json.loads(os.environ.get("PR_LABELS", "[]"))
     problems = check(updates, reviewed, datetime.now(UTC))
     if problems:

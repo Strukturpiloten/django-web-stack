@@ -135,7 +135,7 @@
         "major"
       ],
       "matchJsonata": [
-        "$exists(newVersion) and $not(newPatch > 0) and $not(isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"]) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 30)"
+        "$exists(newVersion) and ($not($exists(newPatch)) or newPatch = 0) and $not(isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"]) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 30)"
       ],
       "enabled": false
     },
@@ -146,7 +146,7 @@
         "major"
       ],
       "matchJsonata": [
-        "$exists(newVersion) and $not(newPatch > 0)"
+        "$exists(newVersion) and ($not($exists(newPatch)) or newPatch = 0)"
       ],
       "automerge": false,
       "dependencyDashboardApproval": true
@@ -179,6 +179,15 @@
         "isVulnerabilityAlert = true and $exists(newVersion) and $not(isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"]) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 3)"
       ],
       "enabled": false
+    },
+    {
+      "description": "Expedite a verified high or critical fix, including the first release on a line",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"]"
+      ],
+      "enabled": true,
+      "dependencyDashboardApproval": false,
+      "automerge": false
     }
   ],
   "github-actions": {
