@@ -15,7 +15,7 @@ devcontainer() {
         tar -C /source --exclude=.git --exclude=.venv --exclude=temp -cf - . | tar -xf -
         mkdir -p .venv "$UV_CACHE_DIR"
         chown -R vscode:vscode /work "$UV_CACHE_DIR"
-        exec sudo -Eu vscode bash .devcontainer/verify-tools.sh'
+        exec sudo -Hu vscode --preserve-env=UV_CACHE_DIR,UV_PYTHON_DOWNLOADS,UV_LINK_MODE bash .devcontainer/verify-tools.sh'
 }
 
 case "$LANE" in
@@ -30,6 +30,10 @@ case "$LANE" in
         # renovate: datasource=npm depName=renovate
         renovate_version=44.249.3
         npm exec --yes --package="renovate@$renovate_version" -- renovate-config-validator --no-global --strict renovate.json
+        LOG_LEVEL=debug LOG_FORMAT=json GITHUB_COM_TOKEN="$GH_TOKEN" \
+            npm exec --yes --package="renovate@$renovate_version" -- renovate --platform=local --dry-run=extract \
+            > "$RUNNER_TEMP/renovate-extract.jsonl"
+        python .github/ci/check-extraction.py "$RUNNER_TEMP/renovate-extract.jsonl"
         if [[ "$PR_AUTHOR" == 'renovate[bot]' && -n "$BASE" ]]; then
             git show "$BASE:.github/ci/lock-policy.py" > "$RUNNER_TEMP/lock-policy.py"
             python -I "$RUNNER_TEMP/lock-policy.py" "$BASE"

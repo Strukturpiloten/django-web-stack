@@ -135,7 +135,7 @@
         "major"
       ],
       "matchJsonata": [
-        "$exists(newVersion) and $not((newPatch > 0)) and $not((isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"])) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 30)"
+        "$exists(newVersion) and $not(newPatch > 0) and $not(isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"]) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 30)"
       ],
       "enabled": false
     },
@@ -146,7 +146,7 @@
         "major"
       ],
       "matchJsonata": [
-        "$exists(newVersion) and $not((newPatch > 0))"
+        "$exists(newVersion) and $not(newPatch > 0)"
       ],
       "automerge": false,
       "dependencyDashboardApproval": true
@@ -176,7 +176,7 @@
     {
       "description": "Keep the normal hold on lower or unknown severity alerts",
       "matchJsonata": [
-        "isVulnerabilityAlert = true and $exists(newVersion) and $not((isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"])) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 3)"
+        "isVulnerabilityAlert = true and $exists(newVersion) and $not(isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"]) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 3)"
       ],
       "enabled": false
     }
