@@ -1,0 +1,14 @@
+from django.apps import AppConfig
+
+
+class DemoConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "{{ python_package }}"
+    label = "demo"
+    verbose_name = {{ project_name | tojson }}
+
+    def ready(self) -> None:
+        # Configure the task app without importing dependencies from package __init__.
+        from .celery import app
+
+        app.set_default()

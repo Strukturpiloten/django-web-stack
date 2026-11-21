@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Template: Debug tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests",
+        "-x"
+      ],
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    }
+  ]
+}

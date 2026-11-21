@@ -1,0 +1,79 @@
+_min_copier_version: "9.19.0"
+_subdirectory: template
+_exclude:
+  - .git
+  - .hg
+  - .svn
+  - .DS_Store
+  - .venv
+  - node_modules
+  - __pycache__
+  - '*.pyc'
+  - .pytest_cache
+  - .ruff_cache
+  - staticfiles
+  - build
+  - dist
+  - |
+    {% if not include_frontend %}
+    /assets
+    /package.json
+    /package-lock.json
+    /scripts/build-assets.mjs
+    /src/*/templates
+    /tests/test_browser.py
+    {% endif %}
+
+project_name:
+  type: str
+  help: Human-readable project name
+  default: My Application
+  validator: >-
+    {% if not project_name.strip() or '\n' in project_name or '\r' in project_name %}
+    Use a non-empty, single-line project name.
+    {% endif %}
+
+project_slug:
+  type: str
+  help: Distribution/repository name (lowercase words separated by hyphens)
+  default: "{{ project_name | lower | replace(' ', '-') }}"
+  validator: >-
+    {% if not (project_slug | regex_search('^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$'))
+    or '\n' in project_slug or '\r' in project_slug %}
+    Use lowercase letters, digits, and single hyphens; start with a letter.
+    {% endif %}
+
+python_package:
+  type: str
+  help: Python import name (lowercase letters, digits, underscores; no Python keywords)
+  default: "{{ project_slug | replace('-', '_') }}"
+  validator: >-
+    {% set keywords = ['and', 'as', 'assert', 'async', 'await', 'break', 'class',
+    'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from',
+    'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass',
+    'raise', 'return', 'try', 'while', 'with', 'yield'] %}
+    {% if not (python_package | regex_search('^[a-z][a-z0-9_]*$'))
+    or python_package in keywords or python_package in ['django', 'celery', 'ninja', 'allauth', 'pytest', 'pydantic', 'uvicorn']
+    or '\n' in python_package or '\r' in python_package %}
+    Use a lowercase Python identifier that is not a keyword.
+    {% endif %}
+
+project_description:
+  type: str
+  help: Short description of the project
+  default: A Django project
+
+default_mode:
+  type: str
+  help: Which application interfaces should the generated project start with?
+  choices:
+    Django pages and HTTP API: full
+    Django pages only: web-only
+    HTTP API without frontend tooling: api-only
+    Backend jobs and health checks only: backend-only
+  default: full
+
+include_frontend:
+  type: bool
+  when: false
+  default: "{{ default_mode in ['full', 'web-only'] }}"

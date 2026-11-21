@@ -1,0 +1,201 @@
+import uuid
+from unittest.mock import patch
+
+import pytest
+from django.conf import settings
+from django.db import OperationalError, transaction
+from django.test import Client
+
+from {{ python_package }}.models import HelloJob
+from {{ python_package }}.services import create_hello_job
+from {{ python_package }}.tasks import run_hello_job
+
+JOB_ENDPOINTS = []
+if settings.UI_ENABLED:
+    JOB_ENDPOINTS.append("/jobs/")
+if settings.API_ENABLED:
+    JOB_ENDPOINTS.append("/api/v1/jobs")
+
+
+@pytest.fixture
+def owner(django_user_model):
+    return django_user_model.objects.create_user(username="owner", password="test-password")
+
+
+def test_public_greetings(client):
+    if settings.API_ENABLED:
+        assert client.get("/api/v1/hello").json() == {"message": "Hello world"}
+    else:
+        assert client.get("/api/v1/hello").status_code == 404
+    if settings.UI_ENABLED:
+        assert b"Hello world" in client.get("/hello/").content
+    else:
+        assert client.get("/hello/").status_code == 404
+    assert client.get("/health/live").json() == {"status": "ok"}
+
+
+@pytest.mark.django_db
+def test_readiness_checks_postgres(client):
+    assert client.get("/health/ready").status_code == 200
+
+
+def test_readiness_reports_database_unavailable(client):
+    with patch("{{ python_package }}.views.connections") as databases:
+        databases.__getitem__.return_value.cursor.side_effect = OperationalError("unavailable")
+        response = client.get("/health/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+
+
+@pytest.mark.django_db
+def test_jobs_require_session_authentication(client):
+    if settings.API_ENABLED:
+        assert client.post("/api/v1/jobs").status_code == 401
+        assert client.get(f"/api/v1/jobs/{uuid.uuid4()}").status_code == 401
+    if settings.UI_ENABLED:
+        assert client.post("/jobs/").status_code == 302
+        assert client.get(f"/jobs/{uuid.uuid4()}/").status_code == 302
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("endpoint", JOB_ENDPOINTS)
+def test_authenticated_job_creation_requires_csrf(owner, endpoint):
+    client = Client(enforce_csrf_checks=True)
+    client.force_login(owner)
+    assert client.post(endpoint).status_code == 403
+    assert not HelloJob.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("endpoint", JOB_ENDPOINTS)
+def test_authenticated_job_creation_with_csrf(owner, endpoint, django_capture_on_commit_callbacks):
+    client = Client(enforce_csrf_checks=True)
+    client.force_login(owner)
+    csrf_page = "/" if settings.UI_ENABLED else "/_allauth/browser/v1/config"
+    assert client.get(csrf_page).status_code == 200
+    csrf_token = client.cookies[settings.CSRF_COOKIE_NAME].value
+    with (
+        patch("{{ python_package }}.tasks.run_hello_job.delay") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        response = client.post(endpoint, HTTP_X_CSRFTOKEN=csrf_token)
+    assert response.status_code == 202
+    job = HelloJob.objects.get()
+    assert job.owner == owner
+    assert job.status == HelloJob.Status.PENDING
+    assert job.message == "Hello world"
+    dispatch.assert_called_once_with(str(job.id))
+    if endpoint.startswith("/api/"):
+        assert response.json() == {
+            "id": str(job.id),
+            "status": "pending",
+            "message": "Hello world",
+            "result": "",
+        }
+
+
+@pytest.mark.django_db
+def test_job_status_is_visible_only_to_its_owner(client, owner, django_user_model):
+    job = HelloJob.objects.create(owner=owner, message="Hello world")
+    client.force_login(owner)
+    if settings.API_ENABLED:
+        assert client.get(f"/api/v1/jobs/{job.id}").json()["id"] == str(job.id)
+    if settings.UI_ENABLED:
+        assert client.get(f"/jobs/{job.id}/").status_code == 200
+    other_user = django_user_model.objects.create_user(username="other")
+    client.force_login(other_user)
+    assert client.get(f"/api/v1/jobs/{job.id}").status_code == 404
+    assert client.get(f"/jobs/{job.id}/").status_code == 404
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dispatch_waits_for_database_commit(owner):
+    with patch("{{ python_package }}.tasks.run_hello_job.delay") as dispatch:
+        with transaction.atomic():
+            job = create_hello_job(owner)
+            dispatch.assert_not_called()
+        dispatch.assert_called_once_with(str(job.id))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_rolled_back_job_is_never_dispatched(owner):
+    with patch("{{ python_package }}.tasks.run_hello_job.delay") as dispatch:
+        with pytest.raises(RuntimeError), transaction.atomic():
+            create_hello_job(owner)
+            raise RuntimeError("abort")
+        dispatch.assert_not_called()
+    assert not HelloJob.objects.exists()
+
+
+@pytest.mark.django_db
+def test_worker_persists_result_and_duplicate_delivery_is_idempotent(owner):
+    job = HelloJob.objects.create(owner=owner, message="Hello world")
+    assert run_hello_job.run(str(job.id)) == "Hello world"
+    job.refresh_from_db()
+    assert job.status == HelloJob.Status.SUCCEEDED
+    assert job.result == "Hello world"
+    completed_at = job.updated_at
+    with patch("{{ python_package }}.services.greeting") as greet:
+        assert run_hello_job.run(str(job.id)) == "Hello world"
+        greet.assert_not_called()
+    job.refresh_from_db()
+    assert job.updated_at == completed_at
+
+
+@pytest.mark.django_db
+def test_worker_ignores_deleted_jobs():
+    assert run_hello_job.run(str(uuid.uuid4())) is None
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(settings.HEADLESS_ONLY, reason="Account pages are disabled")
+def test_local_login_uses_allauth_session(client, owner):
+    response = client.post("/accounts/login/", {"login": "owner", "password": "test-password"})
+    assert response.status_code == 302
+    assert int(client.session["_auth_user_id"]) == owner.pk
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(settings.HEADLESS_ONLY, reason="Account pages are disabled")
+def test_signup_is_closed_by_default(client):
+    assert not settings.ENABLE_SIGNUP
+    response = client.post(
+        "/accounts/signup/",
+        {
+            "username": "uninvited",
+            "password1": "longer-password-123",
+            "password2": "longer-password-123",
+        },
+    )
+    assert response.status_code == 200
+    assert (
+        not HelloJob._meta.get_field("owner")
+        .remote_field.model.objects.filter(
+            username="uninvited",
+        )
+        .exists()
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(not settings.API_ENABLED, reason="API disabled")
+def test_external_client_can_run_its_own_job_and_revoke_session(owner, django_user_model):
+    client = Client(enforce_csrf_checks=True)
+    response = client.post(
+        "/_allauth/app/v1/auth/login",
+        {"username": owner.username, "password": "test-password"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    headers = {"X-Session-Token": response.json()["meta"]["session_token"]}
+    client = Client(enforce_csrf_checks=True, headers=headers)
+    with patch("{{ python_package }}.tasks.run_hello_job.delay"):
+        response = client.post("/api/v1/jobs")
+    assert response.status_code == 202
+    path = f"/api/v1/jobs/{response.json()['id']}"
+    assert client.get(path).status_code == 200
+    other = django_user_model.objects.create_user(username="other")
+    foreign_job = HelloJob.objects.create(owner=other)
+    assert client.get(f"/api/v1/jobs/{foreign_job.id}").status_code == 404
+    client.delete("/_allauth/app/v1/auth/session")
+    assert client.get(path).status_code == 401

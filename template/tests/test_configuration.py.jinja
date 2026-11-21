@@ -1,0 +1,110 @@
+import os
+import subprocess
+import sys
+
+import pytest
+
+
+def run_configuration_check(overrides: dict[str, str], code: str):
+    env = {
+        **os.environ,
+        "DJANGO_DEBUG": "true",
+        "DJANGO_ENABLE_ADMIN": "false",
+        "DJANGO_ENABLE_API_DOCS": "false",
+        "DJANGO_ENABLE_API_SCHEMA": "false",
+        **overrides,
+    }
+    return subprocess.run(
+        [sys.executable, "-c", "import django; django.setup(); " + code],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "mode,web,api",
+    [
+{%- if include_frontend %}
+        ("full", True, True),
+        ("web-only", True, False),
+{%- endif %}
+        ("backend-only", False, False),
+        ("api-only", False, True),
+    ],
+)
+def test_mode_excludes_disabled_routes(mode, web, api):
+    code = """
+from django.urls import Resolver404, resolve
+def present(path):
+    try:
+        resolve(path)
+    except Resolver404:
+        return False
+    return True
+assert present("/") == WEB
+assert present("/hello/") == WEB
+assert present("/jobs/") == WEB
+assert present("/api/v1/hello") == API
+assert present("/api/v1/jobs") == API
+assert present("/health/live")
+assert present("/health/ready")
+assert present("/accounts/login/") == {{ include_frontend }}
+assert present("/_allauth/app/v1/auth/login") == API
+assert present("/_allauth/browser/v1/auth/login") == API
+assert not present("/admin/")
+assert not present("/api/v1/docs")
+assert not present("/api/v1/openapi.json")
+""".replace("WEB", str(web)).replace("API", str(api))
+    run_configuration_check({"DJANGO_MODE": mode}, code)
+
+
+def test_admin_docs_schema_are_explicitly_enabled():
+    run_configuration_check(
+        {
+            "DJANGO_MODE": "api-only",
+            "DJANGO_ENABLE_ADMIN": "true",
+            "DJANGO_ENABLE_API_DOCS": "true",
+            "DJANGO_ENABLE_API_SCHEMA": "true",
+        },
+        "from django.urls import resolve; "
+        'resolve("/admin/"); resolve("/api/v1/docs"); resolve("/api/v1/openapi.json")',
+    )
+
+
+def test_schema_can_be_enabled_without_interactive_docs():
+    run_configuration_check(
+        {"DJANGO_MODE": "api-only", "DJANGO_ENABLE_API_SCHEMA": "true"},
+        """
+from django.urls import Resolver404, resolve
+resolve("/api/v1/openapi.json")
+try:
+    resolve("/api/v1/docs")
+except Resolver404:
+    pass
+else:
+    raise AssertionError("interactive docs must be absent")
+""",
+    )
+
+
+@pytest.mark.parametrize("secret", ["", "local-demo-change-this-before-deployment"])
+def test_production_requires_a_secret_key(secret):
+    with pytest.raises(subprocess.CalledProcessError) as failed:
+        run_configuration_check({"DJANGO_DEBUG": "false", "DJANGO_SECRET_KEY": secret}, "")
+    assert "DJANGO_SECRET_KEY is required" in failed.value.stderr
+
+
+def test_invalid_mode_is_rejected():
+    with pytest.raises(subprocess.CalledProcessError) as failed:
+        run_configuration_check({"DJANGO_MODE": "invalid"}, "")
+    assert "DJANGO_MODE must be" in failed.value.stderr
+{%- if not include_frontend %}
+
+
+def test_ui_mode_requires_frontend_scaffolding():
+    with pytest.raises(subprocess.CalledProcessError) as failed:
+        run_configuration_check({"DJANGO_MODE": "full"}, "")
+    assert "DJANGO_MODE must be" in failed.value.stderr
+{%- endif %}

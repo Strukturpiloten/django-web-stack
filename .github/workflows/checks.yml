@@ -1,0 +1,66 @@
+name: Template checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: template-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.9"
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked development tools
+        run: uv sync --locked
+      - name: Lint Python
+        run: uv run --locked ruff check .
+      - name: Check formatting
+        run: uv run --locked ruff format --check .
+      - name: Test template rendering, packaging, and updates
+        run: uv run --locked pytest
+
+  generated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        mode: [full, api-only]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.9"
+          python-version: "3.14"
+      - name: Generate an application from this revision
+        run: uv run --locked copier copy --defaults --vcs-ref HEAD -d default_mode=${{ matrix.mode }} . temp/application
+      - name: Build and start the shared application image
+        working-directory: temp/application
+        run: |
+          docker compose build web
+          docker compose up --no-build -d --wait --wait-timeout 180 web worker
+          curl --fail http://127.0.0.1:8000/health/ready
+      - name: Test the generated application against PostgreSQL
+        working-directory: temp/application
+        run: uv run --locked --all-extras --env-file .env.example pytest
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: temp/application
+        run: docker compose logs

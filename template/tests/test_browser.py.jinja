@@ -1,0 +1,110 @@
+"""Opt-in browser check using PostgreSQL, RabbitMQ, and a real Celery worker."""
+
+import asyncio
+import os
+from uuid import uuid4
+
+import pytest
+from celery.contrib.testing.worker import start_worker
+from kombu import Exchange, Queue
+from playwright.async_api import async_playwright, expect
+
+from {{ python_package }}.celery import app
+
+pytestmark = [
+    pytest.mark.browser,
+    pytest.mark.django_db(transaction=True),
+    pytest.mark.skipif(
+        os.environ.get("RUN_BROWSER_TESTS") != "1",
+        reason="Set RUN_BROWSER_TESTS=1 with PostgreSQL, RabbitMQ, and Chromium available",
+    ),
+]
+
+
+@pytest.fixture
+def background_worker(transactional_db):
+    """Use the test database and a private queue, separate from deployment workers."""
+    queue_name = f"test-browser-{uuid4().hex}"
+    previous = {
+        key: app.conf[key]
+        for key in (
+            "task_default_queue",
+            "task_default_exchange",
+            "task_default_routing_key",
+            "task_always_eager",
+        )
+    }
+    previous_queues = list(app.amqp.queues.consume_from)
+    app.conf.update(
+        task_default_queue=queue_name,
+        task_default_exchange=queue_name,
+        task_default_routing_key=queue_name,
+        task_always_eager=False,
+    )
+    app.amqp.queues.add(
+        Queue(
+            queue_name,
+            exchange=Exchange(queue_name, type="direct", auto_delete=True),
+            routing_key=queue_name,
+            auto_delete=True,
+        )
+    )
+    try:
+        with app.connection_for_read() as connection:
+            connection.ensure_connection(max_retries=0)
+        with start_worker(
+            app,
+            pool="solo",
+            concurrency=1,
+            queues=[queue_name],
+            perform_ping_check=False,
+        ) as worker:
+            yield worker
+    finally:
+        app.conf.update(previous)
+        app.amqp.queues.select(previous_queues)
+        app.amqp.queues.pop(queue_name, None)
+
+
+def test_hello_and_background_job(live_server, django_user_model, background_worker):
+    django_user_model.objects.create_user(
+        username="browser-user",
+        email="browser@example.test",
+        password="browser-password-123!",
+    )
+
+    # Keep Django's synchronous database setup outside Playwright's event loop.
+    asyncio.run(check_browser_flow(live_server.url))
+
+
+async def check_browser_flow(url):
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        try:
+            page = await browser.new_page()
+            await exercise_page(page, url)
+        finally:
+            await browser.close()
+
+
+async def exercise_page(page, url):
+    await page.goto(url)
+    await expect(page.get_by_role("heading", name="Hello world", exact=True)).to_be_visible()
+    await page.get_by_role("button", name="Say hello", exact=True).click()
+    await expect(page.locator("#hello-result")).to_have_text("Hello world")
+
+    await page.get_by_role("link", name="Sign in", exact=True).first.click()
+    await page.get_by_label("Username", exact=True).fill("browser-user")
+    await page.get_by_label("Password", exact=True).fill("browser-password-123!")
+    await page.get_by_role("button", name="Sign in", exact=True).click()
+    await expect(page.get_by_role("button", name="Sign out", exact=True)).to_be_visible()
+
+    await page.get_by_role("button", name="Run background hello", exact=True).click()
+    await expect(page.locator("#job-status")).to_have_attribute(
+        "data-status", "succeeded", timeout=30_000
+    )
+    await expect(page.locator("#job-status")).to_contain_text("Hello world")
+    await expect(page.locator("#job-status")).not_to_have_attribute("hx-trigger", "every 1s")
+
+    await page.get_by_role("button", name="Sign out", exact=True).click()
+    await expect(page.get_by_role("link", name="Sign in", exact=True).first).to_be_visible()

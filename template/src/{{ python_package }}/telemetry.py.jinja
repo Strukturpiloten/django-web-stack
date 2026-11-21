@@ -1,0 +1,40 @@
+"""Opt-in tracing for web and worker processes, without management-command exporters."""
+
+import os
+from threading import Lock
+
+_configured_pid: int | None = None
+_lock = Lock()
+
+
+def configure_telemetry() -> None:
+    global _configured_pid
+
+    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    with _lock:
+        if _configured_pid == os.getpid():
+            return
+
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.celery import CeleryInstrumentor
+        from opentelemetry.instrumentation.django import DjangoInstrumentor
+        from opentelemetry.instrumentation.logging import LoggingInstrumentor
+        from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        provider = TracerProvider(
+            resource=Resource.create(
+                {"service.name": os.environ.get("OTEL_SERVICE_NAME", "{{ project_slug }}")},
+            ),
+        )
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        trace.set_tracer_provider(provider)
+        DjangoInstrumentor().instrument(tracer_provider=provider)
+        CeleryInstrumentor().instrument(tracer_provider=provider)
+        PsycopgInstrumentor().instrument(tracer_provider=provider)
+        LoggingInstrumentor().instrument(set_logging_format=True)
+        _configured_pid = os.getpid()

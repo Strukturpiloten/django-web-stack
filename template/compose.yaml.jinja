@@ -1,0 +1,136 @@
+name: {{ project_slug }}
+
+x-application-environment: &application-environment
+  DJANGO_SETTINGS_MODULE: {{ python_package }}.settings
+  DJANGO_MODE: ${DJANGO_MODE:-{{ default_mode }}}
+  DJANGO_TRUST_PROXY: ${DJANGO_TRUST_PROXY:-0}
+  DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-0}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-demo-change-this-before-deployment}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,web}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+  DJANGO_ENABLE_ADMIN: ${DJANGO_ENABLE_ADMIN:-{{ 1 if include_frontend else 0 }}}
+  DJANGO_ENABLE_API_DOCS: ${DJANGO_ENABLE_API_DOCS:-{{ 1 if include_frontend else 0 }}}
+  DJANGO_ENABLE_API_SCHEMA: ${DJANGO_ENABLE_API_SCHEMA:-1}
+  DJANGO_ENABLE_SIGNUP: ${DJANGO_ENABLE_SIGNUP:-0}
+  DJANGO_OIDC_APPS: ${DJANGO_OIDC_APPS:-[]}
+  DJANGO_STATIC_ROOT: /app/staticfiles
+  POSTGRES_HOST: db
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-{{ python_package }}}
+  POSTGRES_USER: ${POSTGRES_USER:-localdemo}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdemo}
+  CELERY_BROKER_URL: amqp://${RABBITMQ_USER:-localdemo}:${RABBITMQ_PASSWORD:-localdemo}@rabbitmq:5672//
+  VALKEY_URL: ${CONTAINER_VALKEY_URL:-}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-{{ project_slug }}}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+x-application: &application
+  image: localhost/{{ project_slug }}:${APP_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Containerfile
+    target: runtime
+  environment: *application-environment
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  migrate:
+    <<: *application
+    command: [python, -m, django, migrate, --noinput]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    <<: *application
+    command: [uvicorn, "{{ python_package }}.asgi:application", --host, 0.0.0.0, --port, "8000"]
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    <<: *application
+    command: [celery, -A, "{{ python_package }}.celery:app", worker, --loglevel=INFO, --concurrency=2]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  db:
+    image: docker.io/library/postgres:18
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-{{ python_package }}}
+      POSTGRES_USER: ${POSTGRES_USER:-localdemo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdemo}
+    ports:
+      - "127.0.0.1:${POSTGRES_PUBLISHED_PORT:-15432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: docker.io/library/rabbitmq:4.3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-localdemo}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-localdemo}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PUBLISHED_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, check_running]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  valkey:
+    image: docker.io/valkey/valkey:9
+    profiles: [valkey]
+    command: [valkey-server, --appendonly, "yes"]
+    ports:
+      - "127.0.0.1:${VALKEY_PUBLISHED_PORT:-16379}:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  valkey_data:

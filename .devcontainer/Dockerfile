@@ -1,0 +1,24 @@
+FROM docker.io/library/node:24-trixie-slim AS node_toolchain
+FROM ghcr.io/astral-sh/uv:0.13.9 AS uv_toolchain
+FROM docker.io/library/python:3.14-slim-trixie
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY --from=node_toolchain /usr/local/ /usr/local/
+COPY --from=uv_toolchain /uv /uvx /usr/local/bin/
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        bash ca-certificates curl git jq make shellcheck shfmt sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 vscode \
+    && useradd --uid 1000 --gid vscode --create-home --shell /bin/bash vscode \
+    && printf 'vscode ALL=(root) NOPASSWD:ALL\n' > /etc/sudoers.d/vscode \
+    && chmod 0440 /etc/sudoers.d/vscode
+
+ENV UV_PYTHON_DOWNLOADS=0 \
+    UV_LINK_MODE=copy \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+USER vscode

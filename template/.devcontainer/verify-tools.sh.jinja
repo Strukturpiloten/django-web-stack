@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+for tool in python uv {% if include_frontend %}node npm {% endif %}git jq shellcheck shfmt; do
+    if ! command -v "${tool}" >/dev/null 2>&1; then
+        printf 'Missing development tool: %s\n' "${tool}" >&2
+        exit 1
+    fi
+done
+
+# A named volume keeps this interpreter separate from any host virtualenv.
+if [[ ! -w .venv ]]; then
+    sudo chown "$(id -u):$(id -g)" .venv
+fi
+if [[ ! -w "${UV_CACHE_DIR}" ]]; then
+    sudo chown "$(id -u):$(id -g)" "${UV_CACHE_DIR}"
+fi
+
+python --version
+uv --version
+uv sync --locked --all-extras
+uv run --locked --all-extras django-admin --version
+uv run --locked --all-extras ruff --version
+{% if include_frontend %}
+npm ci --ignore-scripts
+npm run build
+{% endif %}
+printf 'Application development tools are ready.\n'
