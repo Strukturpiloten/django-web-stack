@@ -59,6 +59,8 @@ jobs:
         with:
           version: "0.13.9"
           python-version: "3.15"
+          # These lanes provision inside Docker or only validate Renovate on a main push.
+          enable-cache: ${{ matrix.lane != 'dev-root' && matrix.lane != 'renovate' }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: matrix.lane == 'frontend' || matrix.lane == 'renovate'
         with:
