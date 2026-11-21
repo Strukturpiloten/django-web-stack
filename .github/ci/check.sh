@@ -30,6 +30,8 @@ case "$LANE" in
         # renovate: datasource=npm depName=renovate
         renovate_version=44.249.3
         npm exec --yes --package="renovate@$renovate_version" -- renovate-config-validator --no-global --strict renovate.json
+        npm exec --yes --package="renovate@$renovate_version" -- \
+            sh -c 'node .github/ci/test-renovate.mjs "$(command -v renovate)"'
         LOG_LEVEL=debug LOG_FORMAT=json GITHUB_COM_TOKEN="$GH_TOKEN" \
             npm exec --yes --package="renovate@$renovate_version" -- renovate --platform=local --dry-run=extract \
             > "$RUNNER_TEMP/renovate-extract.jsonl"
