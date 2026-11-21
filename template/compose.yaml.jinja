@@ -98,7 +98,7 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: docker.io/library/rabbitmq:4.3.8-management@sha256:d1150154e5bb43773513548d2b1f541bb6d63bb49377baf2e21de303c2c62bb3
+    image: docker.io/library/rabbitmq:4.4.1-management@sha256:61f90c401a5b5ed2486771973ea92ad66046471eacab9c9149f1a6e091c91677
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-localdemo}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-localdemo}
