@@ -1,2 +1,3 @@
 # Managed by Copier. Commit this file; do not store secrets in template answers.
-{{ _copier_answers | to_nice_yaml -}}
+{% set sha = _copier_conf.vcs_ref_hash -%}
+{{ (dict(_copier_answers, _commit=sha) if sha else _copier_answers) | to_nice_yaml -}}

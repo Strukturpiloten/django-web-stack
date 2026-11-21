@@ -2,6 +2,7 @@ name: Template checks
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -23,7 +24,7 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.13.9"
-          python-version: "3.14"
+          python-version: "3.15"
           enable-cache: true
           cache-dependency-glob: uv.lock
       - name: Install locked development tools
@@ -48,7 +49,7 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: "0.13.9"
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Generate an application from this revision
         run: uv run --locked copier copy --defaults --vcs-ref HEAD -d default_mode=${{ matrix.mode }} . temp/application
       - name: Build and start the shared application image
@@ -57,7 +58,24 @@ jobs:
           docker compose build web
           docker compose up --no-build -d --wait --wait-timeout 180 web worker
           curl --fail http://127.0.0.1:8000/health/ready
-      - name: Test the generated application against PostgreSQL
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.mode == 'full'
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: temp/application/package-lock.json
+      - name: Exercise the rendered UI and background worker in Chromium
+        if: matrix.mode == 'full'
+        working-directory: temp/application
+        env:
+          RUN_BROWSER_TESTS: "1"
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          uv run --locked --group browser playwright install --with-deps chromium
+          uv run --locked --all-extras --group browser --env-file .env.example pytest
+      - name: Test the generated API against PostgreSQL
+        if: matrix.mode == 'api-only'
         working-directory: temp/application
         run: uv run --locked --all-extras --env-file .env.example pytest
       - name: Show container logs on failure

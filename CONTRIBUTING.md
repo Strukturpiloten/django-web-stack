@@ -1,6 +1,6 @@
 # Contributing
 
-Edit `template/` for generated files and `copier.yml` for prompts. Keep Python 3.14 and Node 24 compatible across CI, containers, and manifests.
+Edit `template/` for generated files and `copier.yml` for prompts. Keep Python 3.15 and Node 24 compatible across CI, containers, and manifests.
 
 ## Refresh dependencies
 
@@ -14,7 +14,7 @@ npm --prefix template outdated
 
 For a frontend update, change the exact versions in `template/package.json` and run `npm --prefix template install --package-lock-only --ignore-scripts`. Include both manifests and their updated locks in the review. The generated Python lock retains a placeholder for the downstream package name.
 
-## Check and release
+## Check and merge
 
 ```sh
 uv run --locked ruff check .
@@ -22,4 +22,4 @@ uv run --locked ruff format --check .
 uv run --locked pytest
 ```
 
-On a release commit, confirm that the tracked files include `template/.env.example.jinja`, both template locks, and the answers-file template. Let the generated-image CI jobs pass. Tag that commit with an immutable version such as `v0.1.0` and publish the tag and release notes. Call out changes to configuration, database migrations and build requirements. Consumers using Renovate receive a template update PR after their next scan.
+Open a PR against protected `main` and describe any consumer migration steps. `Required CI` aggregates the template suite and generated full and API-only checks. After merging, the successful push run on the exact `main` SHA makes it eligible for downstream update PRs. The template uses this SHA for distribution. Generated applications manage their own package versions.
