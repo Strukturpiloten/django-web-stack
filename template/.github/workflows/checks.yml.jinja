@@ -2,6 +2,8 @@ name: Application checks
 
 on:
   push:
+    branches: [main]
+  merge_group:
   pull_request:
   workflow_dispatch:
 
@@ -13,12 +15,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: {% raw %}${{ steps.paths.outputs.docs }}{% endraw %}
+      check: {% raw %}${{ steps.paths.outputs.check }}{% endraw %}
+      image: {% raw %}${{ steps.paths.outputs.image }}{% endraw %}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          BASE: {% raw %}${{ github.event.pull_request.base.sha }}{% endraw %}
+          HEAD: {% raw %}${{ github.event.pull_request.head.sha }}{% endraw %}
+        run: |
+          docs=false check=false image=false
+          if [[ -z "$BASE" ]]; then
+            docs=true check=true image=true
+          else
+            git diff --no-renames --name-only -z "$BASE...$HEAD" > "$RUNNER_TEMP/paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                *.md) docs=true ;;
+                Containerfile|.dockerignore|compose.yaml|scripts/container-entrypoint.sh) image=true ;;
+                src/*|tests/*|manage.py|assets/*|scripts/build-assets.mjs) check=true ;;
+                *) docs=true check=true image=true ;;
+              esac
+            done < "$RUNNER_TEMP/paths"
+          fi
+          printf 'docs=%s\ncheck=%s\nimage=%s\n' "$docs" "$check" "$image" >> "$GITHUB_OUTPUT"
+
+  docs:
+    needs: plan
+    if: needs.plan.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --offline --include-fragments --no-progress './**/*.md'
+          failIfEmpty: false
+
   check:
+    needs: plan
+    if: needs.plan.outputs.check == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       db:
-        image: postgres:18
+        image: docker.io/library/postgres:18.7@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
         env:
           POSTGRES_DB: {{ python_package }}
           POSTGRES_USER: localdemo
@@ -29,7 +78,7 @@ jobs:
           --health-cmd "pg_isready -U localdemo -d {{ python_package }}"
           --health-interval 5s --health-timeout 5s --health-retries 20
       rabbitmq:
-        image: rabbitmq:4.3-management
+        image: docker.io/library/rabbitmq:4.3.8-management@sha256:d1150154e5bb43773513548d2b1f541bb6d63bb49377baf2e21de303c2c62bb3
         env:
           RABBITMQ_DEFAULT_USER: localdemo
           RABBITMQ_DEFAULT_PASS: localdemo
@@ -94,6 +143,8 @@ jobs:
 {% endif %}
 
   image:
+    needs: plan
+    if: needs.plan.outputs.image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -106,11 +157,14 @@ jobs:
   required:
     name: Required CI
     if: always()
-    needs: [check, image]
+    needs: [plan, docs, check, image]
     runs-on: ubuntu-latest
     steps:
-      - name: Require application tests and the runtime image
+      - name: Require every selected job
         env:
-          TEST_RESULT: {% raw %}${{ needs.check.result }}{% endraw %}
-          IMAGE_RESULT: {% raw %}${{ needs.image.result }}{% endraw %}
-        run: test "$TEST_RESULT" = success && test "$IMAGE_RESULT" = success
+          JOBS: {% raw %}${{ toJSON(needs) }}{% endraw %}
+        run: |
+          jq -e '.plan.result == "success" and
+            (. as $jobs | ["docs", "check", "image"] | all(.[];
+              . as $name | $jobs[$name].result ==
+                (if $jobs.plan.outputs[$name] == "true" then "success" else "skipped" end)))' <<< "$JOBS"

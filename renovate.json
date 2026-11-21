@@ -1,0 +1,189 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "timezone": "Europe/Berlin",
+  "dependencyDashboard": {
+    "enabled": true
+  },
+  "prConcurrentLimit": 5,
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "automerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "ignoreTests": false,
+  "separateMinorPatch": true,
+  "rangeStrategy": "update-lockfile",
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": false
+  },
+  "vulnerabilityAlerts": {
+    "automerge": false,
+    "vulnerabilityFixStrategy": "lowest",
+    "prCreation": "immediate",
+    "minimumReleaseAge": null,
+    "labels": [
+      "security"
+    ]
+  },
+  "dockerfile": {
+    "managerFilePatterns": [
+      "/^template\\/(?:Containerfile|\\.devcontainer\\/Dockerfile)\\.jinja$/"
+    ]
+  },
+  "customManagers": [
+    {
+      "description": "Compose and CI service image pins in Copier sources",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^template\\/(?:compose\\.yaml|\\.github/workflows/checks\\.yml)\\.jinja$/"
+      ],
+      "matchStrings": [
+        "image: (?<depName>docker\\.io/[a-z0-9-]+/[a-z0-9-]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Tools invoked by the CI shell",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/ci/check\\.sh$/"
+      ],
+      "matchStrings": [
+        "(?<depName>docker\\.io/rhysd/actionlint):(?<currentValue>[\\d.]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "description": "Action SHAs and their release comments in a Jinja workflow",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^template/\\.github/workflows/[^/]+\\.ya?ml\\.jinja$/"
+      ],
+      "matchStrings": [
+        "uses: (?<depName>[\\w.-]+/[\\w.-]+)@(?<currentDigest>[a-f0-9]{40}) # (?<currentValue>v[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "description": "uv release in setup-uv steps",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^(?:template/)?\\.github/workflows/[^/]+\\.ya?ml(?:\\.jinja)?$/"
+      ],
+      "matchStrings": [
+        "\\n\\s+version: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "pypi",
+      "depNameTemplate": "uv"
+    },
+    {
+      "description": "Pinned Renovate validator",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/ci/check\\.sh$/"
+      ],
+      "matchStrings": [
+        "renovate_version=(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "renovate"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Stable patches on the current line can merge with green CI",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Reviewed developer tools can also take a mature minor",
+      "matchPackageNames": [
+        "ruff",
+        "pytest",
+        "pytest-django",
+        "build",
+        "hatchling"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "PostgreSQL numbers maintenance releases in the second component",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "postgres",
+        "library/postgres",
+        "docker.io/library/postgres"
+      ],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "description": "Offer new lines after the first maintenance release; open a manual .0 exception after 30 days",
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "matchJsonata": [
+        "$exists(newVersion) and $not((newPatch > 0)) and $not((isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"])) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 30)"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Maintainers decide on older .0 exceptions",
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "matchJsonata": [
+        "$exists(newVersion) and $not((newPatch > 0))"
+      ],
+      "automerge": false,
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Review prereleases and OpenTelemetry updates together",
+      "matchPackageNames": [
+        "opentelemetry-*"
+      ],
+      "automerge": false,
+      "groupName": "OpenTelemetry {{{updateType}}}"
+    },
+    {
+      "description": "Review prereleases even when their numeric change is a patch",
+      "matchJsonata": [
+        "$exists(newVersion) and $contains(newVersion, /(?:alpha|beta|preview|dev|rc|[ab])[.\\d-]*\\d/i)"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "A security PR always needs a maintainer",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Keep the normal hold on lower or unknown severity alerts",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and $exists(newVersion) and $not((isVulnerabilityAlert = true and $lowercase($string(vulnerabilitySeverity)) in [\"high\", \"critical\"])) and ($not($exists(newVersionAgeInDays)) or newVersionAgeInDays < 3)"
+      ],
+      "enabled": false
+    }
+  ],
+  "github-actions": {
+    "managerFilePatterns": [
+      "/^template/\\.github/workflows/[^/]+\\.ya?ml$/"
+    ]
+  }
+}
