@@ -28,7 +28,7 @@ case "$LANE" in
         ;;
     renovate)
         # renovate: datasource=npm depName=renovate
-        renovate_version=44.249.3
+        renovate_version=44.258.1
         npm exec --yes --package="renovate@$renovate_version" -- renovate-config-validator --no-global --strict renovate.json
         npm exec --yes --package="renovate@$renovate_version" -- \
             sh -c 'node .github/ci/test-renovate.mjs "$(command -v renovate)"'
